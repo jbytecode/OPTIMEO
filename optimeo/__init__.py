@@ -109,6 +109,11 @@ Analyze the results of your experiments and model the response of your process.
 
 ### With the Python package
 
+You might want to use the app as a Python package in order to integrate it in your own code, or to automate some tasks. For example:
+
+- you are maybe using a robotic platform to run your experiments and characterize your results, and you want to use Bayesian Optimization to suggest new experiments to run automatically
+- you are running a simulation and you want to optimize its parameters using Design of Experiment and Bayesian Optimization.
+
 You can also use the app as a Python package (see [Installation](#installation)). You can import the different modules of the app and use them in your own code. Here is an example of how to use the app as a package:
 
 #### For Design of Experiment

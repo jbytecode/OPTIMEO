@@ -22,6 +22,7 @@ warnings.simplefilter(action='ignore', category=RuntimeError)
 
 import numpy as np
 import pandas as pd
+import random
 from janitor import clean_names
 from typing import Any, Dict, List, Optional, Union
 
@@ -205,7 +206,8 @@ class BOExperiment:
                  outcome_constraints: Optional[List[str]] = None,
                  feature_constraints: Optional[List[str]] = None,
                  optim='bo',
-                 acq_func=None) -> None:
+                 acq_func=None,
+                 seed=42) -> None:
         self._first_initialization_done = False
         self.ranges              = ranges
         self.features            = features
@@ -218,6 +220,7 @@ class BOExperiment:
         self.feature_constraints = feature_constraints
         self.optim               = optim
         self.acq_func            = acq_func
+        self.seed                = seed
         self.candidate = None
         """The candidate(s) suggested by the optimization process."""
         self.ax_client = None
@@ -237,6 +240,22 @@ class BOExperiment:
         """To indicate that the first initialization is done so that we don't call `initialize_ax_client()` again."""
         self.pareto_frontier = None
         """The Pareto frontier for multi-objective optimization experiments."""
+
+    @property
+    def seed(self) -> int:
+        """Random seed for reproducibility. Default is 42."""
+        return self._seed
+
+    @seed.setter
+    def seed(self, value: int):
+        """Set the random seed."""
+        if isinstance(value, int):
+            self._seed = value
+        else:
+            raise Warning("Seed must be an integer. Using default seed 42.")
+            self._seed = 42
+        random.seed(self.seed)
+        np.random.seed(self.seed)
 
     @property
     def features(self):
@@ -671,6 +690,7 @@ Input data:
                                 num_trials=-1,  # No limitation on how many trials should be produced from this step
                                 max_parallelism=3,  # Parallelism limit for this step, often lower than for Sobol
                                 model_configs={"botorch_model_class": self.acq_func['acqf']},
+                                model_kwargs={"seed": self.seed},  # Any kwargs you want passed into the model
                                 model_gen_options={"acquisition_options": self.acq_func['acqf_kwargs']}
                             )
                         ]
@@ -681,7 +701,7 @@ Input data:
                             model=Models.SOBOL,
                             num_trials=-1,  # How many trials should be produced from this generation step
                             should_deduplicate=True,  # Deduplicate the trials
-                            # model_kwargs={"seed": 165478},  # Any kwargs you want passed into the model
+                            model_kwargs={"seed": self.seed},  # Any kwargs you want passed into the model
                             model_gen_kwargs={},  # Any kwargs you want passed to `modelbridge.gen`
                         )
                     ]
@@ -728,7 +748,8 @@ Input data:
         trials = trials[[name for name in self.names]]
         if with_predicted:
             topred = [trials.iloc[i].to_dict() for i in range(len(trials))]
-            preds = pd.DataFrame(self.predict(topred))
+            preds = self.predict(topred)[0]
+            preds = pd.DataFrame(preds)
             # add 'predicted_' to the names of the pred dataframe
             preds.columns = [f'Predicted_{col}' for col in preds.columns]
             preds = preds.reset_index(drop=True)
@@ -756,8 +777,21 @@ Input data:
         if self.ax_client is None:
             self.initialize_ax_client()
         obs_feats = [ObservationFeatures(parameters=p) for p in params]
-        f, _ = self.model.predict(obs_feats)
-        return f
+        f, cm = self.model.predict(obs_feats)
+        # return prediction and std errors as a list of dictionaries
+        # Convert to list of dictionaries
+        predictions = []
+        for i in range(len(obs_feats)):
+            pred_dict = {}
+            for metric_name in f.keys():
+                pred_dict[metric_name] = {
+                    'mean': f[metric_name][i],
+                    'std': np.sqrt(cm[metric_name][metric_name][i])
+                }
+            predictions.append(pred_dict)
+        preds = [{k: v['mean'] for k, v in pred.items()} for pred in predictions]
+        stderrs = [{k: v['std'] for k, v in pred.items()} for pred in predictions]
+        return preds, stderrs
 
     def update_experiment(self, params, outcomes):
         """
@@ -821,6 +855,7 @@ Input data:
         mname = self.ax_client.objective_names[0] if metricname is None else metricname
         param_name = [name for name in self.names if name not in slice_values.keys()]
         par_numeric = [name for name in param_name if self._features[name]['type'] in ['int', 'float']]
+        
         if len(par_numeric)==1:
             fig = plot_slice(
                     model=self.model,
@@ -850,19 +885,55 @@ Input data:
         # Turn the figure into a plotly figure
         plotly_fig = go.Figure(fig.data)
 
+        # Get all completed trials for distance calculation
+        all_trials = self.ax_client.get_trials_data_frame()
+        completed_trials = all_trials[all_trials['trial_status'] != 'CANDIDATE']
+        
+        # Calculate distances from slice plane for completed trials
+        distances = []
+        if len(slice_values) > 0:
+            for idx, row in completed_trials.iterrows():
+                # Calculate Euclidean distance to slice plane
+                dist_squared = 0
+                for param, slice_val in slice_values.items():
+                    if param in row and param in self.names:
+                        # Normalize by parameter range for fair comparison
+                        param_range = self._features[param].get('bounds', [0, 1])
+                        normalized_dist = (row[param] - slice_val) / (param_range[1] - param_range[0])
+                        dist_squared += normalized_dist ** 2
+                distances.append(np.sqrt(dist_squared))
+            
+            # Normalize distances to [0, 1] for opacity mapping
+            if len(distances) > 0 and max(distances) > 0:
+                max_dist = max(distances)
+                # Map distance to opacity: closer = more opaque (1.0), farther = more transparent (0.2)
+                opacities = [1.0 - 0.8 * (d / max_dist) for d in distances]
+            else:
+                opacities = [1.0] * len(distances)
+        else:
+            # No slice specified, all points fully opaque
+            opacities = [1.0] * len(completed_trials)
+
         # Modify only the "In-sample" markers
         trials = self.ax_client.get_trials_data_frame()
         trials = trials[trials['trial_status'] == 'CANDIDATE']
         trials = trials[[name for name in self.names]]
+        
+        in_sample_trace_idx = 0
         for trace in plotly_fig.data:
             if trace.type == "contour":  # Check if it's a contour plot
                 trace.colorscale = "viridis"  # Apply Viridis colormap
-            if 'marker' in trace:  # Modify only the "In-sample" markers
+            if 'marker' in trace and trace.legendgroup != cand_name:  # Modify only the "In-sample" markers
                 trace.marker.color = "white"  # Change marker color
                 trace.marker.symbol = "circle"  # Change marker style
                 trace.marker.size = 10
                 trace.marker.line.width = 2
                 trace.marker.line.color = 'black'
+                
+                # Apply opacity based on distance from slice
+                if len(opacities) > 0:
+                    trace.marker.opacity = opacities
+                
                 if trace.text is not None:
                     trace.text = [t.replace('Arm', '<b>Sample').replace("_0","</b>") for t in trace.text]
             if trace.legendgroup == cand_name:  # Modify only the "Candidate" markers
@@ -881,6 +952,7 @@ Input data:
                     for t in trace.text
                     for i in range(len(trials))
                 ]
+        
         plotly_fig.update_layout(
             plot_bgcolor="white",  # White background
             legend=dict(bgcolor='rgba(0,0,0,0)'),

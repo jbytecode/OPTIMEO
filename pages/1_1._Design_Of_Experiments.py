@@ -15,6 +15,7 @@ import xlsxwriter
 from resources.functions import *
 from optimeo.doe import *
 from datetime import datetime
+import re
 
 st.set_page_config(page_title="Design Of Experiment", 
                    page_icon="resources/icon.png",
@@ -45,7 +46,7 @@ cols = st.sidebar.columns(2)
 cols[0].write("N parameters")
 Npars = cols[0].number_input("N parameters", min_value=1, max_value=20, value=2, label_visibility="collapsed")
 parameters = np.array([{'name': '', 'actual': 0., 'coded': 0.} for i in range(Npars)])
-cols[1].write("Random order")
+cols[1].write("Shuffle experiments order")
 randomize = cols[1].checkbox("Randomize", value=True, label_visibility="collapsed")
 reduction = 2
 order = 2
@@ -276,7 +277,7 @@ with tab2:
         if parameters[par]['type'] != "Categorical":
             low = cols[2].number_input("Low", value=-1., key=f"low{1+par}")
             high = cols[3].number_input("High", value=1., key=f"high{1+par}")
-            other = cols[4].text_input("""Other (comma separated)""", value="", key=f"other{1+par}")
+            other = cols[4].text_input("""Intermediate values""", value="", key=f"other{1+par}", help="**Optional:** specify intermediate values (comma separated) between `Low` and `High` (only useful for Factorial designs) or Box-Behnken design (for which at least one intermediate value is required).")
             other = [float(item) for item in other.split(",") if item]
             parameters[par]['values'] = np.array([low] + other + [high])
         else:
@@ -288,7 +289,9 @@ if design_type in ['Sobol sequence', 'Space Filling Latin Hypercube',
                    'Randomized Latin Hypercube', 'Optimal']:
     mymin = 1 if design_type!='Optimal' else minexp
     Nexp = st.sidebar.number_input("Number of experiments:",
-                                    min_value=mymin, max_value=1000, value = mymin)
+                                    min_value=mymin, max_value=1000, value = 10)
+    rseed = st.sidebar.number_input("Random seed (for reproducibility):", 
+                                    min_value=0, value=42)
     feature_constraints = st.sidebar.text_input("""Add **linear** constraints on the features (if any). Use a comma to separate multiple constraints.""",
                 help="""The constraints should be in the form of inequalities such as:
 
@@ -306,6 +309,19 @@ if design_type in ['Sobol sequence', 'Space Filling Latin Hypercube',
         feature_constraints = feature_constraints.split(",")
     else:
         feature_constraints = []
+    # check that the constraints are valid
+    for i,constraint in enumerate(feature_constraints):
+        # simple check: each constraint should contain at 
+        # least one parameter name that is among the defined parameters
+        # and not contain invalid parameter names
+        constraint = re.findall(r'[a-zA-Z][a-zA-Z0-9]*', constraint)
+        invalid_consts = []
+        for const in constraint:
+            if const not in [parameters[par]['name'] for par in range(Npars)]:
+                st.error(f"Constraint '{const}' is invalid: no matching parameter name found. The constraint will be ignored.")
+                invalid_consts.append(i)
+        if len(invalid_consts)>0:
+            feature_constraints = [c for j,c in enumerate(feature_constraints) if j not in invalid_consts]
 elif design_type=='Fractional Factorial':
     reduction = st.sidebar.number_input("Reduction:", min_value=2, max_value=Npars+1, value=2)
 elif design_type=='Central Composite':
@@ -338,7 +354,8 @@ doe = DesignOfExperiments(
     feature_constraints = feature_constraints,
     center              = center,
     alpha               = alpha,
-    face                = face
+    face                = face,
+    seed                = rseed
 )
 design = doe.design
 

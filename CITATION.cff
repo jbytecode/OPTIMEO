@@ -4,7 +4,7 @@
 cff-version: 1.2.0
 title: OPTIMEO
 message: >-
-  Bayesian Optimization web app for Tuning, Modeling, and Orchestrating Processes
+  Bayesian Optimization Web App for Process Tuning, Modeling, and Orchestration
 type: software
 authors:
   - given-names: Colin

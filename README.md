@@ -83,7 +83,7 @@ So now, you just have to run `optimeo` in your terminal to run the app.
 
 ### With the web app
 
-You can use the app directly on its [Streamlit.io web page](https://optimeo.streamlit.app/), or run it locally (see [Installation](#installation)).
+You can use the app directly on its [Streamlit.io web page](https://optimeo.streamlit.app/), or run it locally (see [Installation](#installation)). **It is recommended to run it locally if you have a lot of data to process, as it will be much faster.**
 
 Choose the page you want to use in the sidebar, and follow the instructions. Hover the mouse on the question marks to get more information about the parameters.
 
@@ -97,6 +97,11 @@ From a previous set of experiments and their results, generate a new set of expe
 Analyze the results of your experiments and model the response of your process.
 
 ### With the Python package
+
+You might want to use the app as a Python package in order to integrate it in your own code, or to automate some tasks. For example:
+
+- you are maybe using a robotic platform to run your experiments and characterize your results, and you want to use Bayesian Optimization to suggest new experiments to run automatically
+- you are running a simulation and you want to optimize its parameters using Design of Experiment and Bayesian Optimization.
 
 You can also use the app as a Python package (see [Installation](#installation)). You can import the different modules of the app and use them in your own code. Here is an example of how to use the app as a package:
 

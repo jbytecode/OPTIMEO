@@ -69,6 +69,8 @@ st.write("""
 tabs = st.tabs(["Data Loading", "Bayesian Optimization", 'Predictions'])
 
 with tabs[0]:# Data Loading
+    rseed = st.sidebar.number_input("Random seed (for reproducibility):", 
+                                  min_value=0, value=42)
     colos = st.columns([2,3])
     data = load_data_widget()
     if data is None:
@@ -307,7 +309,9 @@ If you want to add non-linear constraint like `x1^2 + x2^2 <= 5`, you should fir
                 help="""You can add constraints to the outcomes **that are not objectives**. Leave blank if no constraints, and use a comma to separate multiple constraints.
 
 The constraints should be in the form of inequalities such as:
-`constrained_outcome <= some_bound`""", on_change=model_changed)
+`constrained_outcome <= some_bound`
+
+**Note:** This corresponds to setting an **objective thresholds** to incorporate domain knowledge. Thresholds define minimum acceptable values for objectives: "If objective_1 is less than X, it doesn't matter how good objective_2 is - that solution is unacceptable." This helps focus the search on practically feasible solutions. For example, if maximizing yield, you might set a threshold of 80% to exclude any solutions below that value regardless of other objectives.""", on_change=model_changed)
         if len(outcome_constraints)>0:
             outcome_constraints = outcome_constraints.replace("+", " + ")
             outcome_constraints = outcome_constraints.replace("<", "<=")
@@ -336,7 +340,7 @@ $$ UCB(x) = \\mu(x) + \\sqrt{\\beta} \\sigma(x) $$
 
 where $\\mu(x)$ is the predicted mean at point $x$, $\\sigma(x)$ is the predicted standard deviation at point $x$, and $\\beta$ is a tuning parameter that controls the balance between exploration and exploitation. 
 
-A higher value of $\\beta$ will lead to more exploration, while a lower value will lead to more exploitation. The default value of $\\beta$ is 1, which provides a good balance between exploration and exploitation.
+A higher value of $\\beta$ will lead to more exploration, while a lower value will lead to more exploitation. The default value of $\\beta$ is 1, which simplifies to $\\mu(x) + \\sigma(x)$, such that the predictions and the model's uncertainty estimates (standard deviations) are balanced equally.
 
 """)
         if tuning:
@@ -392,7 +396,7 @@ The results may vary slightly each time you run it."""):
                     features, outcomes,
                     factor_ranges, Nexp, maximize, 
                     fixed_features, feature_constraints, outcome_constraints,
-                    sampler_list[samplerchoice],acq_function
+                    sampler_list[samplerchoice],acq_function, rseed
                     )
             st.session_state.plot_up_to_date = False
             st.session_state['next'] = st.session_state['bo'].suggest_next_trials()
@@ -409,6 +413,12 @@ The results may vary slightly each time you run it."""):
         figopt = None
         # add a button to launch pareto frontiers plotting
         containerplot.write("#### Plot options")
+        # add help about slicing parameters in a tooltip
+        containerplot.info(icon=":material/info:", body="""For example, if your search space has more than 2 dimensions (i.e. you have more than 2 parameters), and you want to plot a 2D contour of your model's predictions comparing just two parameters, you'll need to fix the other ones to a constant value to get a 2D "slice" through the high-dimensional space. 
+
+Adding a value in the boxes below will fix the corresponding parameter to that value when plotting the model. If you leave a box empty, the parameter will be left free, and if there are more than 2 free parameters, the plot will allow you to choose which two parameters to plot, the other ones being marginalized (averaged) over.
+
+In the plots below, the points transparency indicates the distance from the slice values: the more transparent a point is, the further it is from the slice value for the fixed parameters.""")
         cols= containerplot.columns([3,3,1])
         parslice = {}
         for i,f in enumerate(factors):
@@ -509,12 +519,24 @@ with tabs[2]:# Predictions
         if st.session_state['bo'] is None:
             st.warning("""The model is not yet computed. Please compute the model in the **Bayesian Optimization** tab.""")
         if len(parslice) > 0 and st.session_state['bo'] is not None:
-            pred = st.session_state['bo'].predict([parslice])
+            pred, stderrs = st.session_state['bo'].predict([parslice])
             pred = pd.DataFrame(pred)
-            # append "Predicted_" to the response names
-            pred.columns = [f"Predicted_{col}" for col in pred.columns]
+            stderrs = pd.DataFrame(stderrs)
+            # Concatenate side by side
+            result = pd.concat([pred, stderrs.add_suffix(' standard error')], axis=1)
+
+            # If you want to pivot to long format with columns: response, prediction, standard error
+            result_long = pd.DataFrame([
+                {
+                    'Response': col,
+                    'Prediction': pred[col].iloc[0],
+                    'Standard error': stderrs[col].iloc[0]
+                }
+                for col in pred.columns
+            ])
+
             cols = st.columns([1,2,1])
-            cols[1].dataframe(pred, hide_index=True)
+            cols[1].dataframe(result_long, hide_index=True)
             # actual = {}
             # cols[1].write("Update model with actual value of the response for these parameters")
             # for i in range(len(responses)):

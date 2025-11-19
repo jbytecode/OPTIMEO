@@ -34,6 +34,7 @@ import definitive_screening_design as dsd
 import plotly.express as px
 from itertools import combinations
 import plotly.graph_objects as go
+import random
 
 class DesignOfExperiments:
     """
@@ -138,7 +139,8 @@ class DesignOfExperiments:
                  feature_constraints: Optional[List[Dict[str, Any]]] = None,
                  center=(2,2),
                  alpha='o',
-                 face='ccc'):
+                 face='ccc', 
+                 seed: int = 42):
         self.type = type
         self.parameters = parameters
         self.Nexp = Nexp
@@ -152,6 +154,7 @@ class DesignOfExperiments:
         self.lows = {}
         self.feature_constraints = feature_constraints
         self.highs = {}
+        self.seed = seed
         self.create_design()
 
     def __repr__(self):
@@ -186,6 +189,22 @@ class DesignOfExperiments:
     def type(self, value: str):
         """Set the type of design."""
         self._type = value
+
+    @property
+    def seed(self) -> int:
+        """Random seed for reproducibility. Default is 42."""
+        return self._seed
+
+    @seed.setter
+    def seed(self, value: int):
+        """Set the random seed."""
+        if isinstance(value, int):
+            self._seed = value
+        else:
+            raise Warning("Seed must be an integer. Using default seed 42.")
+            self._seed = 42
+        random.seed(self.seed)
+        np.random.seed(self.seed)
 
     @property
     def parameters(self) -> List[Dict[str, Dict[str, Any]]]:
@@ -400,7 +419,7 @@ class DesignOfExperiments:
                     model=Models.SOBOL,
                     num_trials=-1,
                     should_deduplicate=True,
-                    model_kwargs={"seed": 165478},
+                    model_kwargs={"seed": self.seed},
                     model_gen_kwargs={},
                 )]
             )

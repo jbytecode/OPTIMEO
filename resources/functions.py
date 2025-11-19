@@ -195,7 +195,7 @@ def check_ranges(ranges):
 def update_model(features, outcomes, 
                  factor_ranges, Nexp, maximize, 
                  fixed_features, feature_constraints,outcome_constraints,
-                 sampler, acq_function):
+                 sampler, acq_function, rseed):
     """
     Update the model if the parameters have changed.
     """
@@ -217,7 +217,8 @@ def update_model(features, outcomes,
             fixed_features      = fixed_features,
             feature_constraints = feature_constraints,
             optim               = sampler,
-            acq_func            = acq_function
+            acq_func            = acq_function,
+            seed                = rseed
             )
     else:
         # see if parameters that just play on the generation have changed
